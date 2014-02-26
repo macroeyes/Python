@@ -261,8 +261,8 @@ def search(query, source = None, page= 1 , authtoken = None, prints = True):
 
     :param str query: (required), query to search with
     :param str source: (optional), source to search
-    :param +'ve int: (optional), page number of search 
-    :param str authotoken: (optional) Quandl auth token for extended API access
+    :param int page: (optional), page number of search
+    :param str authtoken: (optional) Quandl auth token for extended API access
     :returns: :array: search results
 
     """
