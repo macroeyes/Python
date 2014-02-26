@@ -44,7 +44,7 @@ def get(dataset, **kwargs):
     :param int rows: Number of rows which will be returned
     :param str sort_order: options are asc, desc. Default: `asc`
     :param str returns: specify what format you wish your dataset returned as,
-        either `numpy` for a numpy ndarray or `pandas`. Default: `pandas`
+        either `numpy` for a numpy ndarray, `pandas` for a pandas DataFrame, `json`, `xml`, `csv`, `plain` for raw data. Default: `pandas`
     :param str text: specify whether to print output text to stdout, pass 'no' to supress output.
     :returns: :class:`pandas.DataFrame` or :class:`numpy.ndarray`
 
@@ -69,7 +69,11 @@ def get(dataset, **kwargs):
     
     #Unicode String
     if type(dataset) == strings or type(dataset) == str:
-        url = QUANDL_API_URL + 'datasets/{}.csv?'.format(dataset)
+        if returns not in ['pandas', 'numpy']:
+            extension = returns
+        else:
+            extension = 'csv'
+        url = QUANDL_API_URL + 'datasets/{}.{}?'.format(dataset, extension)
     
     #Array
     elif type(dataset) == list:
@@ -123,7 +127,8 @@ def get(dataset, **kwargs):
                 print("url:", url)
                 error = "Error Downloading! {}".format(e)
                 raise Exception(error)
-    else: # assume pandas is requested
+    # pandas is requested
+    elif returns == 'pandas':
         try:
             urldata = _download(url)
 
@@ -155,9 +160,31 @@ def get(dataset, **kwargs):
                 print("url:", url)
                 error = "Error Downloading! {}".format(e)
                 raise Exception(error)
+    # raw data is requested
+    else:
+        try:
+            return _download(url, raw=True)
+
+        #Error catching
+        except HTTPError as e:
+            #API limit reached
+            if str(e) == 'HTTP Error 403: Forbidden':
+                error = 'API daily call limit exceeded. Contact us at connect@quandl.com if you want an increased daily limit'
+                raise Exception(error)
+
+            #Dataset not found
+            elif str(e) == 'HTTP Error 404: Not Found':
+                error = "Dataset not found. Check Quandl code: {} for errors".format(dataset)
+                raise Exception(error)
+
+            #Catch all
+            else:
+                print("url:", url)
+                error = "Error Downloading! {}".format(e)
+                raise Exception(error)
 
 def push(data, code, name, authtoken='', desc='', override=False,text='yes'):
-    ''' Upload a pandas Dataframe to Quandl and returns link to the dataset.
+    """ Upload a pandas Dataframe to Quandl and returns link to the dataset.
 
     :param data: (required), pandas ts or numpy array
     :param str code: (required), Dataset code
@@ -165,10 +192,10 @@ def push(data, code, name, authtoken='', desc='', override=False,text='yes'):
     :param str name: (required), Dataset name
     :param str authtoken: (required), to upload data
     :param str desc: (optional), Description of dataset
-    :param bool overide: (optional), whether to overide dataset of same code
+    :param bool override: (optional), whether to overide dataset of same code
     :param str text: specify whether to print output text to stdout, pass 'no' to supress output.
-    
-    :returns: :str: link to uploaded dataset'''
+
+    :returns: :str: link to uploaded dataset"""
 
     override = str(override).lower()
     token = _getauthtoken(authtoken,text)
@@ -295,9 +322,12 @@ def _parse_dates(date):
 
 
 # Download data into pandas dataframe
-def _download(url):
-    dframe = pd.read_csv(url, index_col=0, parse_dates=True)
-    return dframe
+def _download(url, raw=False):
+    if raw:
+        request = Request(url)
+        return urlopen(request).read()
+    else:
+        return pd.read_csv(url, index_col=0, parse_dates=True)
 
 #Push data to Quandl. Returns json of HTTP push.
 def _htmlpush(url, raw_params):
