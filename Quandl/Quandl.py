@@ -256,7 +256,7 @@ def push(data, code, name, authtoken='', desc='', override=False,text='yes'):
     return rtn
 
 
-def search(query, source = None, page= 1 , authtoken = None, prints = True):
+def search(query, source = None, page= 1 , authtoken = None, prints = True, **kwargs):
     """Return array of dictionaries of search results.
 
     :param str query: (required), query to search with
@@ -279,6 +279,10 @@ def search(query, source = None, page= 1 , authtoken = None, prints = True):
     #Add search source if given
     if source:
         url += '&source_code=' + source
+    # pass any additional kwargs as url params (future-proofing)
+    if kwargs:
+        url += ["&{}={}".format(key, val) for key, val in kwargs.iteritems()]
+
     #Page to be searched 
     url += '&page=' + str(page)
     text= urlopen(url).read().decode("utf-8")
