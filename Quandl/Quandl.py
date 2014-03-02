@@ -295,7 +295,7 @@ def search(query, source=None, page=1 , authtoken=None, prints=True, raw=False, 
 
     # only neuter the api results if the user doesn't care
     if raw:
-        datalist = data
+        return data
     else:
         datalist = []
         for i in range(len(datasets)):
@@ -314,7 +314,7 @@ def search(query, source=None, page=1 , authtoken=None, prints=True, raw=False, 
                 print('{0:20}\t:\t{1:50}'.format('Column Names', temp_dict['colname']))
                 print('\n\n')
 
-    return datalist
+        return datalist
 
 
 # format date, if None returns None
