@@ -281,7 +281,7 @@ def search(query, source = None, page= 1 , authtoken = None, prints = True, **kw
         url += '&source_code=' + source
     # pass any additional kwargs as url params (future-proofing)
     if kwargs:
-        url += ["&{}={}".format(key, val) for key, val in kwargs.iteritems()]
+        url += "&{}".format(urlencode(kwargs))
 
     #Page to be searched 
     url += '&page=' + str(page)
