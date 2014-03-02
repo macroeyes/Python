@@ -4,14 +4,15 @@ Quandl's API for Python.
 Currently supports getting, searching, and pushing datasets.
 
 """
-from __future__ import (print_function, division, absolute_import,
-                        unicode_literals)
+from __future__ import print_function, division, absolute_import
 import pickle
 import datetime
 import json
 import pandas as pd
 import re
 
+from pprint import pprint
+from pandas import DataFrame, Series
 from dateutil import parser
 from numpy import genfromtxt
 
@@ -26,192 +27,128 @@ except ImportError:
     strings = unicode
 
 
-
 #Base API call URL
 QUANDL_API_URL = 'http://www.quandl.com/api/v1/'
 
 
-def get(dataset, **kwargs):
-    """Return dataframe of requested dataset from Quandl.
-
-    :param dataset: str or list, depending on single dataset usage or multiset usage
-            Dataset codes are available on the Quandl website
-    :param str authtoken: Downloads are limited to 10 unless token is specified
-    :param str trim_start, trim_end: Optional datefilers, otherwise entire
-           dataset is returned
-    :param str collapse: Options are daily, weekly, monthly, quarterly, annual
-    :param str transformation: options are diff, rdiff, cumul, and normalize
-    :param int rows: Number of rows which will be returned
-    :param str sort_order: options are asc, desc. Default: `asc`
-    :param str returns: specify what format you wish your dataset returned as,
-        either `numpy` for a numpy ndarray, `pandas` for a pandas DataFrame, `json`, `xml`, `csv`, `plain` for raw data. Default: `pandas`
-    :param str text: specify whether to print output text to stdout, pass 'no' to supress output.
-    :returns: :class:`pandas.DataFrame` or :class:`numpy.ndarray`
-
-    Note that Pandas expects timeseries data to be sorted ascending for most
-    timeseries functionality to work.
-
-    Any other `kwargs` passed to `get` are sent as field/value params to Quandl
-    with no interference.
-
+def get(dataset, authtoken=None, returns='pandas', text=True, trim_start=None, trim_end=None,
+        collapse=None, transformation=None, rows=None, sort_order='asc', **kwargs):
     """
-    kwargs.setdefault('sort_order', 'asc')
-    text = kwargs.get('text','yes')
-    auth_token = _getauthtoken(kwargs.pop('authtoken', ''),text)
-    trim_start = _parse_dates(kwargs.pop('trim_start', None))
-    trim_end = _parse_dates(kwargs.pop('trim_end', None))
-    returns = kwargs.get('returns', 'pandas')
+    Return dataframe of requested dataset from Quandl.
 
+    N.B. Note that Pandas expects timeseries data to be sorted ascending for most timeseries functionality to work.
+    N.B. Any other `kwargs` passed to `get` are sent as field/value params to Quandl with no interference.
 
-    
-    #Check whether dataset is given as a string (for a single dataset) or an array (for a multiset call)
-    
-    
-    #Unicode String
-    if type(dataset) == strings or type(dataset) == str:
+    :param dataset: str|list, depending on single dataset usage or multiset usage. Dataset codes are available on the Quandl website
+    :param authtoken: str, Quandl API authentication token, (alias `auth_token`)
+    :param trim_start, trim_end: str, Optional datefilers, otherwise entire dataset is returned
+    :param collapse: str, Options are daily, weekly, monthly, quarterly, annual
+    :param transformation: str, options are diff, rdiff, cumul, and normalize
+    :param rows: int, Number of rows which will be returned
+    :param sort_order: str, options are asc, desc. Default: `asc`
+    :param returns: str, specify what format you wish your dataset returned as, either 'numpy' for a numpy ndarray, 'pandas' for a pandas DataFrame, 'json', 'xml', 'csv', 'plain' for raw data. Default: 'pandas'
+    :param text: bool, specify whether to print output text to stdout, pass text=False to supress output.
+
+    :rtype DataFrame|numpy.ndarray|dict
+    """
+
+    auth_token = authtoken
+    pickled_auth = _getauthtoken(auth_token, text=text)
+    trim_start = _parse_dates(trim_start)
+    trim_end = _parse_dates(trim_end)
+
+    # Check whether dataset is given as a string (for a single dataset) or an array (for a multiset call)
+    if isinstance(dataset, (strings, str)):
         if returns not in ['pandas', 'numpy']:
             extension = returns
         else:
             extension = 'csv'
         url = QUANDL_API_URL + 'datasets/{}.{}?'.format(dataset, extension)
-    
-    #Array
-    elif type(dataset) == list:
+    elif dataset is list:
         url = QUANDL_API_URL + 'multisets.csv?columns='
-        #Format for multisets call
+        # Format for multisets call
         dataset = [d.replace('/', '.') for d in dataset]
         for i in dataset:
             url += i + ','
-        #remove trailing ,
+        # remove trailing ,
         url = url[:-1] + '&'
-        
-    #If wrong format
     else:
-        error = "Your dataset must either be specified as a string (containing a Quandl code) or an array (of Quandl codes) for multisets"
-        raise Exception(error)
+        raise Exception("Your dataset must either be specified as a string (containing a "
+                        "Quandl code) or an array (of Quandl codes) for multisets")
         
-    #Append all parameters to API call
-    url = _append_query_fields(url,
-                               auth_token=auth_token,
-                               trim_start=trim_start,
-                               trim_end=trim_end,
-                               **kwargs)
+    # Append all parameters to API call
+    url = _append_query_fields(
+        url,
+        auth_token=pickled_auth,
+        trim_start=trim_start,
+        trim_end=trim_end,
+        collapse=collapse,
+        transformation=transformation,
+        sort_order=sort_order,
+        rows=rows,
+        **kwargs
+    )
     
-    #Determine format data is retrieved in
+    # handle various `returns` types, starting with returns='numpy'
     if returns == 'numpy':
         try:
-            u = urlopen(url)
+            url = urlopen(url)
             try:
-                array = genfromtxt(u, names=True, delimiter=',', dtype=None)
+                # noinspection PyTypeChecker
+                return genfromtxt(url, names=True, delimiter=',', dtype=None)
             except ValueError as e:
-                error = "Currently we only support multisets with up to 100 columns. Please contact connect@quandl.com if this is a problem."
-                raise Exception(error)
-
-            return array
-        #Errors
+                raise Exception("Currently we only support multisets with up to 100 columns. \n"
+                                "Please contact connect@quandl.com if this is a problem.")
         except IOError as e:
-            print("url:", url)
-            raise Exception("Parsing Error! {}".format(e))
-        except HTTPError as e:
-            #API limit reached
-            if str(e) == 'HTTP Error 403: Forbidden':
-                error = 'API daily call limit exceeded. Contact us at connect@quandl.com if you want an increased daily limit'
-                raise Exception(error)
-                
-            #Dataset not found    
-            elif str(e) == 'HTTP Error 404: Not Found':
-                error = "Dataset not found. Check Quandl code: {} for errors".format(dataset)
-                raise Exception(error)
-            #Catch all
-            else:    
-                print("url:", url)
-                error = "Error Downloading! {}".format(e)
-                raise Exception(error)
-    # pandas is requested
+            raise Exception("Parsing Error on url: {}\n{}".format(url, e))
+        except HTTPError as html_error:
+            raise html_error
     elif returns == 'pandas':
         try:
             urldata = _download(url)
-
             if urldata.columns.size > 100:
-                error = "Currently we only support multisets with up to 100 columns. Please contact connect@quandl.com if this is a problem."
-                raise Exception(error)
-            else:
-                if text == "no":
-                    pass
-                else:
-                    print("Returning Dataframe for ", dataset)
-                return urldata
-        
-        
-        #Error catching
-        except HTTPError as e:
-            #API limit reached 
-            if str(e) == 'HTTP Error 403: Forbidden':
-                error = 'API daily call limit exceeded. Contact us at connect@quandl.com if you want an increased daily limit'
-                raise Exception(error)
-                
-            #Dataset not found    
-            elif str(e) == 'HTTP Error 404: Not Found':
-                error = "Dataset not found. Check Quandl code: {} for errors".format(dataset)
-                raise Exception(error)
-                
-            #Catch all 
-            else:    
-                print("url:", url)
-                error = "Error Downloading! {}".format(e)
-                raise Exception(error)
-    # raw data is requested
+                raise Exception("Currently we only support multisets with up to 100 columns. \n"
+                                "Please contact connect@quandl.com if this is a problem.")
+            if text:
+                print("Returning Dataframe {}".format(dataset))
+            return urldata
+        except HTTPError as html_error:
+            raise html_error
     else:
         try:
             return _download(url, raw=True)
+        except HTTPError as html_error:
+            raise html_error
 
-        #Error catching
-        except HTTPError as e:
-            #API limit reached
-            if str(e) == 'HTTP Error 403: Forbidden':
-                error = 'API daily call limit exceeded. Contact us at connect@quandl.com if you want an increased daily limit'
-                raise Exception(error)
 
-            #Dataset not found
-            elif str(e) == 'HTTP Error 404: Not Found':
-                error = "Dataset not found. Check Quandl code: {} for errors".format(dataset)
-                raise Exception(error)
+def push(data, code, name, authtoken, desc='', override=False, text=True):
+    """
+    Upload a pandas Dataframe to Quandl and returns link to the dataset.
 
-            #Catch all
-            else:
-                print("url:", url)
-                error = "Error Downloading! {}".format(e)
-                raise Exception(error)
+    :param data: Pandas ts or numpy array
+    :param code: str, Dataset code must consist of only capital letters, numbers, and underscores
+    :param name: str, Dataset name
+    :param authtoken: str, Required to upload data
+    :param desc: str, Description of dataset (optional, default='')
+    :param override: bool, whether to overide dataset of same code (optional, default=False)
+    :param text: bool, specify whether to print output prints to stdout (optional, default=True)
 
-def push(data, code, name, authtoken='', desc='', override=False,text='yes'):
-    """ Upload a pandas Dataframe to Quandl and returns link to the dataset.
-
-    :param data: (required), pandas ts or numpy array
-    :param str code: (required), Dataset code
-                 must consist of only capital letters, numbers, and underscores
-    :param str name: (required), Dataset name
-    :param str authtoken: (required), to upload data
-    :param str desc: (optional), Description of dataset
-    :param bool override: (optional), whether to overide dataset of same code
-    :param str text: specify whether to print output text to stdout, pass 'no' to supress output.
-
-    :returns: :str: link to uploaded dataset"""
+    :rtype str: url of uploaded dataset
+    """
 
     override = str(override).lower()
-    token = _getauthtoken(authtoken,text)
-    if token == '':
-        error = ("You need an API token to upload your data to Quandl, "
-                 "please see www.quandl.com/API for more information.")
-        raise Exception(error)
+    pickled_token = _getauthtoken(authtoken, text=text)
+    if not pickled_token:
+        raise Exception("You need an API token to upload your data to Quandl. \n"
+                        "Please see www.quandl.com/API for more information.")
 
     #test that code is acceptable format
     _pushcodetest(code)
     datestr = ''
 
     # Verify and format the data for upload.
-    if not isinstance(data, pd.core.frame.DataFrame):
-        error = "only pandas DataFrames are accepted for upload at this time"
-        raise ValueError(error)
+    if not isinstance(data, DataFrame):
+        raise ValueError("Only pandas DataFrames are accepted for upload at this time")
 
     # check if indexed by date
     data_interm = data.to_records()
@@ -220,177 +157,201 @@ def push(data, code, name, authtoken='', desc='', override=False,text='yes'):
 
     #format data for uploading
     for i in data_interm:
-            # Check if index is a date
+        # Check if index is a date
         if isinstance(i[0], datetime.datetime):
             datestr += i[0].date().isoformat()
         else:
             try:
                 datestr += _parse_dates(str(i[0]))
             except ValueError:
-                error = ("Please check your indices, one of them is "
-                         "not a recognizable date")
-                raise Exception(error)
+                raise Exception("Please check your indices, one of them is not a recognizable date")
+
         for n in i:
             if isinstance(n, (float, int)):
                 datestr += ',' + str(n)
         datestr += '\n'
 
-    params = {'name': name,
-              'code': code,
-              'description': desc,
-              'update_or_create': override,
-              'data': datestr}
+    params = {
+        'name': name,
+        'code': code,
+        'description': desc,
+        'update_or_create': override,
+        'data': datestr
+    }
 
-    url = QUANDL_API_URL + 'datasets.json?auth_token=' + token
-    jsonreturn = _htmlpush(url, params)
-    if (jsonreturn['errors']
-        and jsonreturn['errors']['code'][0] == 'has already been taken'):
-        error = ("You are trying to overwrite a dataset which already "
-                 "exists on Quandl. If this is what you wish to do please "
-                 "recall the function with overide = True")
-        raise ValueError(error)
+    url = ''.join([QUANDL_API_URL, 'datasets.json?auth_token=', pickled_token])
 
-    rtn = ('http://www.quandl.com/' + jsonreturn['source_code'] + '/' +
-           jsonreturn['code'])
-    #Return URL of uploaded dataset
-    return rtn
+    json_response = _htmlpush(url, params)
+    if json_response['errors'] and json_response['errors']['code'][0] == 'has already been taken':
+        raise ValueError("You are trying to overwrite a dataset which already \n"
+                         "exists on Quandl. If this is what you wish to do please \n"
+                         "recall the function with overide=True")
+
+    # return URL of uploaded dataset
+    return '/'.join(['http://www.quandl.com', json_response['source_code'], json_response['code']])
 
 
-def search(query, source=None, page=1 , authtoken=None, prints=True, raw=False, **kwargs):
-    """Return array of dictionaries of search results.
-
-    :param str query: (required), query to search with
-    :param str source: (optional), source to search
-    :param int page: (optional), page number of search
-    :param str authtoken: (optional) Quandl auth token for extended API access
-    :param bool raw: (optional) Return (nearly) raw Quandl API response body
-    :returns: :array: search results
-
+def search(query, source=None, page=1 , authtoken=None, text=True, raw=False, **kwargs):
     """
-    
-    token = _getauthtoken(authtoken,prints)
+    Return array of dictionaries of search results.
+
+    :param query: str, query to search with (required)
+    :param source: str, source to search (optional, default=None)
+    :param page: int, page number of search (optional, default=1)
+    :param authtoken: str, Quandl auth token for extended API access (optional, default=None)
+    :param text: bool, pecify whether to print output text to stdout, pass text=False to supress
+    output.
+    :param raw: bool, Return (nearly) raw Quandl API response body (optional, default=False)
+    :param kwargs: dict, dictionary to be url_encoded and passed as url params (optional)
+
+    :rtype list: search results
+    """
+
+    token = _getauthtoken(authtoken, text=text)
     search_url = 'http://www.quandl.com/api/v1/datasets.json?query='
-    #parse query for proper API submission
+
+    # parse query for proper API submission
     parsedquery = re.sub(" ", "+", query)
     parsedquery = re.sub("&", "+", parsedquery)
     url = search_url + parsedquery
-    #Use authtoken if present
+
+    # use authtoken if present
     if token:
         url += '&auth_token=' + token
-    #Add search source if given
+
+    # add search source_code if given
     if source:
         url += '&source_code=' + source
+
     # pass any additional kwargs as url params (future-proofing)
     if kwargs:
         url += "&{}".format(urlencode(kwargs))
 
-    #Page to be searched 
+    # page of results to return
     url += '&page=' + str(page)
-    text= urlopen(url).read().decode("utf-8")
-    data = json.loads(text)
-    try:
-        datasets = data['docs']
-    except TypeError:
-        raise TypeError("There are no matches for this search")
 
-    # only neuter the api results if the user doesn't care
+    # make request, parse response as json
+    data = json.loads(urlopen(url).read().decode("utf-8"))
+
     if raw:
-        return data
+        # full response
+        return_data = data
     else:
-        datalist = []
+        # nothing like full response ...
+        try:
+            datasets = data['docs']
+        except TypeError:
+            # @TODO: is raising an exception here correct/helpful?
+            # (it might be nicer if it just returned None, [], or en empty Dataframe)
+            raise TypeError("There are no matches for this search")
+
+        return_data = []
         for i in range(len(datasets)):
-            temp_dict = {
+            cleaned_dataset = {
                 'name': datasets[i]['name'],
                 'code': "{}/{}".format(datasets[i]['source_code'], datasets[i]['code']),
                 'description': datasets[i]['description'], 'freq': datasets[i]['frequency'],
                 'column_names': datasets[i]['column_names']
             }
-            datalist.append(temp_dict)
-            if prints and i < 4:
-                print('{0:20}\t:\t{1:50}'.format('Name', temp_dict['name']))
-                print('{0:20}\t:\t{1:50}'.format('Quandl Code', temp_dict['code']))
-                print('{0:20}\t:\t{1:50}'.format('Description', temp_dict['desc']))
-                print('{0:20}\t:\t{1:50}'.format('Frequency', temp_dict['freq']))
-                print('{0:20}\t:\t{1:50}'.format('Column Names', temp_dict['colname']))
-                print('\n\n')
+            return_data.append(cleaned_dataset)
+            if text and i < 4:
+                pprint(cleaned_dataset, indent=4)
 
-        return datalist
+    return return_data
 
 
-# format date, if None returns None
 def _parse_dates(date):
-    if date is None:
-        return date
+    """
+    Format date, returns None if date=None
+    :param date: datetime.datetime|datetime.date|None
+    :raise ValueError:
+    :rtype : None|str
+    """
     if isinstance(date, datetime.datetime):
-        return date.date().isoformat()
-    if isinstance(date, datetime.date):
-        return date.isoformat()
-    try:
-        date = parser.parse(date)
-    except ValueError:
-        raise ValueError("{} is not recognised a date.".format(date))
-    return date.date().isoformat()
+        return_date = date.date().isoformat()
+    elif isinstance(date, datetime.date):
+        return_date = date.isoformat()
+    elif date is None:
+        return_date = None
+    else:
+        try:
+            date = parser.parse(date)
+            return_date = date.date().isoformat()
+        except ValueError:
+            raise ValueError("{} is not recognised a date.".format(date))
 
+    return return_date
 
-# Download data into pandas dataframe
 def _download(url, raw=False):
+    """
+    Download data into pandas dataframe, or get raw response
+    :param url: str
+    :param raw: bool
+    :rtype : str|DataFrame
+    """
     if raw:
         request = Request(url)
         return urlopen(request).read()
     else:
         return pd.read_csv(url, index_col=0, parse_dates=True)
 
-#Push data to Quandl. Returns json of HTTP push.
 def _htmlpush(url, raw_params):
-    page = url
+    """
+    Push data to Quandl
+    :param url: str
+    :param raw_params: dict
+    :rtype : dict
+    """
     params = urlencode(raw_params)
-    request = Request(page, params)
-    page = urlopen(request)
-    return json.loads(page.read())
+    response = urlopen(Request(url, params))
+    return json.loads(response.read())
 
-#Test if code is capitalized alphanumeric
 def _pushcodetest(code):
+    """
+    Test if code is capitalized alphanumeric
+    :param code: str
+    :raise Exception:
+    :rtype : str
+    """
     regex = re.compile('[^0-9A-Z_]')
     if regex.search(code):
-        error = ("Your Quandl Code for uploaded data must consist of only "
-                 "capital letters, underscores and numbers.")
-        raise Exception(error)
+        raise Exception("Your Quandl Code for uploaded data must consist of only \n"
+                        "capital letters, underscores and numbers.")
     return code
 
-def _getauthtoken(token,text):
-    """Return and save API token to a pickle file for reuse."""
+def _getauthtoken(token_string, text=False):
+    """
+    Return and save API token to a pickle file for reuse.
+    :param token_string: str, Quandl API token
+    :param text: bool, Print output to stdout, default=False
+    :rtype : str
+    """
     try:
         savedtoken = pickle.load(open('authtoken.p', 'rb'))
     except IOError:
         savedtoken = False
-    if token:
+    if token_string:
         try:
-            pickle.dump(token, open('authtoken.p', 'wb'))
-            if text == "no" or text == False:
-                pass
-                
-            else:
-                print("Token {} activated and saved for later use.".format(token))
+            pickle.dump(token_string, open('authtoken.p', 'wb'))
+            if text:
+                print("Token {} activated and saved for later use.".format(token_string))
         except Exception as e:
-            print("Error writing token to cache: {}".format(str(e)))
+            raise Exception("Error writing token to cache:{}".format(e))
+    elif savedtoken and not token_string:
+        token_string = savedtoken
+        if text:
+            print("Using cached token {} for authentication.".format(token_string))
+    else:
+        if text:
+            print("No authentication tokens found: usage will be limited.\nSee www.quandl.com/api for more information.")
 
-    elif not savedtoken and not token:
-            if text == "no" or text == False:
-                pass
-            else:
-                print("No authentication tokens found: usage will be limited.")
-                print("See www.quandl.com/api for more information.")
-    elif savedtoken and not token:
-        token = savedtoken
-        if text == "no":
-             pass
-        else:
-            print("Using cached token {} for authentication.".format(token))
-    return token
+    return token_string
 
-
-# In lieu of urllib's urlencode, as this handles None values by ignoring them.
 def _append_query_fields(url, **kwargs):
-    field_values = ['{0}={1}'.format(key, val)
-                    for key, val in kwargs.items() if val]
-    return url + '&'.join(field_values)
+    """
+    In lieu of urllib's urlencode, as this handles None values by ignoring them.
+    :param url: str
+    :param kwargs: dict
+    :rtype : str
+    """
+    return url + '&'.join(['{}={}'.format(key, val) for key, val in kwargs.items() if val])
