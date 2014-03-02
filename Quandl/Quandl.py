@@ -256,13 +256,14 @@ def push(data, code, name, authtoken='', desc='', override=False,text='yes'):
     return rtn
 
 
-def search(query, source = None, page= 1 , authtoken = None, prints = True, **kwargs):
+def search(query, source=None, page=1 , authtoken=None, prints=True, raw=False, **kwargs):
     """Return array of dictionaries of search results.
 
     :param str query: (required), query to search with
     :param str source: (optional), source to search
     :param int page: (optional), page number of search
     :param str authtoken: (optional) Quandl auth token for extended API access
+    :param bool raw: (optional) Return (nearly) raw Quandl API response body
     :returns: :array: search results
 
     """
@@ -291,22 +292,28 @@ def search(query, source = None, page= 1 , authtoken = None, prints = True, **kw
         datasets = data['docs']
     except TypeError:
         raise TypeError("There are no matches for this search")
-    datalist = []
-    for i in range(len(datasets)):
-        temp_dict ={}
-        temp_dict['name'] = datasets[i]['name']
-        temp_dict['code'] = datasets[i]['source_code'] + '/' + datasets[i]['code']
-        temp_dict['desc'] = datasets[i]['description']
-        temp_dict['freq'] = datasets[i]['frequency']
-        temp_dict['colname'] = datasets[i]['column_names']
-        datalist.append(temp_dict)
-        if prints and i < 4:
-            print('{0:20}       :        {1:50}'.format('Name',temp_dict['name']))
-            print('{0:20}       :        {1:50}'.format('Quandl Code',temp_dict['code']))
-            print('{0:20}       :        {1:50}'.format('Description',temp_dict['desc']))
-            print('{0:20}       :        {1:50}'.format('Frequency',temp_dict['freq']))
-            print('{0:20}       :        {1:50}'.format('Column Names',temp_dict['colname']))
-            print('\n\n')
+
+    # only neuter the api results if the user doesn't care
+    if raw:
+        datalist = data
+    else:
+        datalist = []
+        for i in range(len(datasets)):
+            temp_dict = {
+                'name': datasets[i]['name'],
+                'code': "{}/{}".format(datasets[i]['source_code'], datasets[i]['code']),
+                'description': datasets[i]['description'], 'freq': datasets[i]['frequency'],
+                'column_names': datasets[i]['column_names']
+            }
+            datalist.append(temp_dict)
+            if prints and i < 4:
+                print('{0:20}\t:\t{1:50}'.format('Name', temp_dict['name']))
+                print('{0:20}\t:\t{1:50}'.format('Quandl Code', temp_dict['code']))
+                print('{0:20}\t:\t{1:50}'.format('Description', temp_dict['desc']))
+                print('{0:20}\t:\t{1:50}'.format('Frequency', temp_dict['freq']))
+                print('{0:20}\t:\t{1:50}'.format('Column Names', temp_dict['colname']))
+                print('\n\n')
+
     return datalist
 
 
