@@ -75,7 +75,7 @@ def get(dataset, authtoken=None, returns='pandas', text=True, trim_start=None, t
     else:
         raise Exception("Your dataset must either be specified as a string (containing a "
                         "Quandl code) or an array (of Quandl codes) for multisets")
-        
+
     # Append all parameters to API call
     url = _append_query_fields(
         url,
@@ -327,12 +327,14 @@ def _getauthtoken(token_string, text=False):
     :rtype : str
     """
     try:
-        savedtoken = pickle.load(open('authtoken.p', 'rb'))
+        with open('authtoken.p', 'rb') as pickle_file:
+            savedtoken = pickle.load(pickle_file)
     except IOError:
         savedtoken = False
     if token_string:
         try:
-            pickle.dump(token_string, open('authtoken.p', 'wb'))
+            with open('authtoken.p', 'wb') as auth_token:
+                pickle.dump(token_string, auth_token)
             if text:
                 print("Token {} activated and saved for later use.".format(token_string))
         except Exception as e:
